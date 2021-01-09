@@ -34,6 +34,9 @@ endif
 ifneq ($(findstring HAL_USE_EFL TRUE,$(HALCONF)),)
 HALSRC += $(CHIBIOS)/os/hal/src/hal_efl.c
 endif
+ifneq ($(findstring HAL_USE_FLASH TRUE,$(HALCONF)),)
+HALSRC += $(CHIBIOS)/os/hal/src/hal_flash.c
+endif
 ifneq ($(findstring HAL_USE_GPT TRUE,$(HALCONF)),)
 HALSRC += $(CHIBIOS)/os/hal/src/hal_gpt.c
 endif
