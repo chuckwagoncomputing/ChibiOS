@@ -79,6 +79,9 @@ static void adc_lld_serve_rx_interrupt(ADCDriver *adcp, uint32_t flags) {
     /* DMA, this could help only if the DMA tries to access an unmapped
        address space or violates alignment rules.*/
     _adc_isr_error_code(adcp, ADC_ERR_DMAFAILURE);
+  } else if ((flags & STM32_DMA_ISR_FEIF) != 0) {
+    /* FIFO error (overrun, underrun or FIFO level error) */
+    _adc_isr_error_code(adcp, ADC_ERR_DMAFIFOERROR);
   }
   else {
     /* It is possible that the conversion group has already be reset by the
@@ -191,6 +194,9 @@ void adc_lld_init(void) {
   ADCD1.adc     = ADC1;
   ADCD1.dmastp  = NULL;
   ADCD1.dmamode = STM32_DMA_CR_CHSEL(ADC1_DMA_CHANNEL) |
+  #if (STM32_DMA_ADVANCED == TRUE)
+                  STM32_DMA_CR_MBURST_INCR4 |
+  #endif
                   STM32_DMA_CR_PL(STM32_ADC_ADC1_DMA_PRIORITY) |
                   STM32_DMA_CR_DIR_P2M |
                   STM32_DMA_CR_MSIZE_HWORD | STM32_DMA_CR_PSIZE_HWORD |
@@ -204,6 +210,9 @@ void adc_lld_init(void) {
   ADCD2.adc     = ADC2;
   ADCD2.dmastp  = NULL;
   ADCD2.dmamode = STM32_DMA_CR_CHSEL(ADC2_DMA_CHANNEL) |
+  #if (STM32_DMA_ADVANCED == TRUE)
+                  STM32_DMA_CR_MBURST_INCR4 |
+  #endif
                   STM32_DMA_CR_PL(STM32_ADC_ADC2_DMA_PRIORITY) |
                   STM32_DMA_CR_DIR_P2M |
                   STM32_DMA_CR_MSIZE_HWORD | STM32_DMA_CR_PSIZE_HWORD |
@@ -217,6 +226,9 @@ void adc_lld_init(void) {
   ADCD3.adc     = ADC3;
   ADCD3.dmastp  = NULL;
   ADCD3.dmamode = STM32_DMA_CR_CHSEL(ADC3_DMA_CHANNEL) |
+  #if (STM32_DMA_ADVANCED == TRUE)
+                  STM32_DMA_CR_MBURST_INCR4 |
+  #endif
                   STM32_DMA_CR_PL(STM32_ADC_ADC3_DMA_PRIORITY) |
                   STM32_DMA_CR_DIR_P2M |
                   STM32_DMA_CR_MSIZE_HWORD | STM32_DMA_CR_PSIZE_HWORD |
@@ -257,6 +269,9 @@ void adc_lld_start(ADCDriver *adcp) {
       rccResetADC1();
 #endif
       rccEnableADC1(true);
+#if STM32_DMA_SUPPORTS_DMAMUX
+      dmaSetRequestSource(adcp->dmastp, STM32_DMAMUX1_ADC1);
+#endif
     }
 #endif /* STM32_ADC_USE_ADC1 */
 
@@ -272,6 +287,9 @@ void adc_lld_start(ADCDriver *adcp) {
       rccResetADC2();
 #endif
       rccEnableADC2(true);
+#if STM32_DMA_SUPPORTS_DMAMUX
+      dmaSetRequestSource(adcp->dmastp, STM32_DMAMUX1_ADC2);
+#endif
     }
 #endif /* STM32_ADC_USE_ADC2 */
 
@@ -287,6 +305,9 @@ void adc_lld_start(ADCDriver *adcp) {
       rccResetADC3();
 #endif
       rccEnableADC3(true);
+#if STM32_DMA_SUPPORTS_DMAMUX
+      dmaSetRequestSource(adcp->dmastp, STM32_DMAMUX1_ADC3);
+#endif
     }
 #endif /* STM32_ADC_USE_ADC3 */
 
@@ -368,6 +389,9 @@ void adc_lld_start_conversion(ADCDriver *adcp) {
   dmaStreamSetTransactionSize(adcp->dmastp, (uint32_t)grpp->num_channels *
                                             (uint32_t)adcp->depth);
   dmaStreamSetMode(adcp->dmastp, mode);
+#if (STM32_DMA_ADVANCED == TRUE)
+    dmaStreamSetFIFO(adcp->dmastp, STM32_DMA_FCR_FEIE | STM32_DMA_FCR_DMDIS | STM32_DMA_FCR_FTH_HALF);
+#endif
   dmaStreamEnable(adcp->dmastp);
 
   /* ADC setup.*/

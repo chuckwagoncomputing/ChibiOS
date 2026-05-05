@@ -22,6 +22,8 @@
  * @{
  */
 
+#include <string.h>
+
 #include "hal.h"
 #include "hal_serial_nor.h"
 
@@ -327,7 +329,39 @@ static flash_error_t snor_release_exclusive(void *instance) {
 }
 
 #if (SNOR_BUS_DRIVER == SNOR_BUS_DRIVER_SPI) || defined(__DOXYGEN__)
-void snor_spi_cmd_addr(BUSDriver *busp, uint32_t cmd, flash_offset_t offset) {
+
+#if SNOR_SPI_WORKAROUND_CACHE
+static void __spiSend(SNORDriver *devp, size_t n, const void *txbuf)
+{
+  BUSDriver *busp = devp->config->busp;
+  while (n) {
+    size_t chunk = (n > SNOR_BUFFER_SIZE) ? SNOR_BUFFER_SIZE : n;
+    memcpy(devp->nocache->buf, txbuf, chunk);
+    /* ensures that all memory accesses are completed */
+    __DSB();
+    spiSend(busp, chunk, devp->nocache->buf);
+    txbuf += chunk;
+    n -= chunk;
+  }
+}
+
+static void __spiReceive(SNORDriver *devp, size_t n, void *rxbuf)
+{
+  BUSDriver *busp = devp->config->busp;
+  while (n) {
+    size_t chunk = (n > SNOR_BUFFER_SIZE) ? SNOR_BUFFER_SIZE : n;
+    spiReceive(busp, chunk, devp->nocache->buf);
+    memcpy(rxbuf, devp->nocache->buf, chunk);
+    rxbuf += chunk;
+    n -= chunk;
+  }
+}
+#else
+#define __spiSend(devp, n, txbuf)    spiSend(devp->config->busp, n, txbuf)
+#define __spiReceive(devp, n, rxbuf) spiReceive(devp->config->busp, n, rxbuf)
+#endif
+
+void snor_spi_cmd_addr(SNORDriver *devp, uint32_t cmd, flash_offset_t offset) {
 #if (SNOR_SPI_4BYTES_ADDRESS == TRUE)
   uint8_t buf[5];
 
@@ -336,7 +370,7 @@ void snor_spi_cmd_addr(BUSDriver *busp, uint32_t cmd, flash_offset_t offset) {
   buf[2] = (uint8_t)(offset >> 16);
   buf[3] = (uint8_t)(offset >> 8);
   buf[4] = (uint8_t)(offset >> 0);
-  spiSend(busp, 5, buf);
+  __spiSend(devp, 5, buf);
 #else
   uint8_t buf[4];
 
@@ -344,7 +378,7 @@ void snor_spi_cmd_addr(BUSDriver *busp, uint32_t cmd, flash_offset_t offset) {
   buf[1] = (uint8_t)(offset >> 16);
   buf[2] = (uint8_t)(offset >> 8);
   buf[3] = (uint8_t)(offset >> 0);
-  spiSend(busp, 4, buf);
+  __spiSend(devp, 4, buf);
 #endif
 }
 #endif
@@ -426,7 +460,8 @@ void bus_stop(BUSDriver *busp) {
  *
  * @notapi
  */
-void bus_cmd(BUSDriver *busp, uint32_t cmd) {
+void bus_cmd(SNORDriver *devp, uint32_t cmd) {
+  BUSDriver *busp = devp->config->busp;
 #if SNOR_BUS_DRIVER == SNOR_BUS_DRIVER_WSPI
   wspi_command_t mode;
 
@@ -441,7 +476,7 @@ void bus_cmd(BUSDriver *busp, uint32_t cmd) {
 
   spiSelect(busp);
   buf[0] = cmd;
-  spiSend(busp, 1, buf);
+  __spiSend(devp, 1, buf);
   spiUnselect(busp);
 #endif
 }
@@ -456,7 +491,8 @@ void bus_cmd(BUSDriver *busp, uint32_t cmd) {
  *
  * @notapi
  */
-void bus_cmd_send(BUSDriver *busp, uint32_t cmd, size_t n, const uint8_t *p) {
+void bus_cmd_send(SNORDriver *devp, uint32_t cmd, size_t n, const uint8_t *p) {
+  BUSDriver *busp = devp->config->busp;
 #if SNOR_BUS_DRIVER == SNOR_BUS_DRIVER_WSPI
   wspi_command_t mode;
 
@@ -471,8 +507,8 @@ void bus_cmd_send(BUSDriver *busp, uint32_t cmd, size_t n, const uint8_t *p) {
 
   spiSelect(busp);
   buf[0] = cmd;
-  spiSend(busp, 1, buf);
-  spiSend(busp, n, p);
+  __spiSend(devp, 1, buf);
+  __spiSend(devp, n, p);
   spiUnselect(busp);
 #endif
 }
@@ -487,10 +523,11 @@ void bus_cmd_send(BUSDriver *busp, uint32_t cmd, size_t n, const uint8_t *p) {
  *
  * @notapi
  */
-void bus_cmd_receive(BUSDriver *busp,
+void bus_cmd_receive(SNORDriver *devp,
                      uint32_t cmd,
                      size_t n,
                      uint8_t *p) {
+  BUSDriver *busp = devp->config->busp;
 #if SNOR_BUS_DRIVER == SNOR_BUS_DRIVER_WSPI
   wspi_command_t mode;
 
@@ -505,8 +542,8 @@ void bus_cmd_receive(BUSDriver *busp,
 
   spiSelect(busp);
   buf[0] = cmd;
-  spiSend(busp, 1, buf);
-  spiReceive(busp, n, p);
+  __spiSend(devp, 1, buf);
+  __spiReceive(devp, n, p);
   spiUnselect(busp);
 #endif
 }
@@ -520,7 +557,8 @@ void bus_cmd_receive(BUSDriver *busp,
  *
  * @notapi
  */
-void bus_cmd_addr(BUSDriver *busp, uint32_t cmd, flash_offset_t offset) {
+void bus_cmd_addr(SNORDriver *devp, uint32_t cmd, flash_offset_t offset) {
+  BUSDriver *busp = devp->config->busp;
 #if SNOR_BUS_DRIVER == SNOR_BUS_DRIVER_WSPI
   wspi_command_t mode;
 
@@ -532,7 +570,7 @@ void bus_cmd_addr(BUSDriver *busp, uint32_t cmd, flash_offset_t offset) {
   wspiCommand(busp, &mode);
 #else
   spiSelect(busp);
-  snor_spi_cmd_addr(busp, cmd, offset);
+  snor_spi_cmd_addr(devp, cmd, offset);
   spiUnselect(busp);
 #endif
 }
@@ -549,11 +587,12 @@ void bus_cmd_addr(BUSDriver *busp, uint32_t cmd, flash_offset_t offset) {
  *
  * @notapi
  */
-void bus_cmd_addr_send(BUSDriver *busp,
+void bus_cmd_addr_send(SNORDriver *devp,
                        uint32_t cmd,
                        flash_offset_t offset,
                        size_t n,
                        const uint8_t *p) {
+  BUSDriver *busp = devp->config->busp;
 #if SNOR_BUS_DRIVER == SNOR_BUS_DRIVER_WSPI
   wspi_command_t mode;
 
@@ -565,8 +604,8 @@ void bus_cmd_addr_send(BUSDriver *busp,
   wspiSend(busp, &mode, n, p);
 #else
   spiSelect(busp);
-  snor_spi_cmd_addr(busp, cmd, offset);
-  spiSend(busp, n, p);
+  snor_spi_cmd_addr(devp, cmd, offset);
+  __spiSend(devp, n, p);
   spiUnselect(busp);
 #endif
 }
@@ -583,11 +622,12 @@ void bus_cmd_addr_send(BUSDriver *busp,
  *
  * @notapi
  */
-void bus_cmd_addr_receive(BUSDriver *busp,
+void bus_cmd_addr_receive(SNORDriver *devp,
                           uint32_t cmd,
                           flash_offset_t offset,
                           size_t n,
                           uint8_t *p) {
+  BUSDriver *busp = devp->config->busp;
 #if SNOR_BUS_DRIVER == SNOR_BUS_DRIVER_WSPI
   wspi_command_t mode;
 
@@ -599,8 +639,8 @@ void bus_cmd_addr_receive(BUSDriver *busp,
   wspiReceive(busp, &mode, n, p);
 #else
   spiSelect(busp);
-  snor_spi_cmd_addr(busp, cmd, offset);
-  spiReceive(busp, n, p);
+  snor_spi_cmd_addr(devp, cmd, offset);
+  __spiReceive(devp, n, p);
   spiUnselect(busp);
 #endif
 }
@@ -617,11 +657,12 @@ void bus_cmd_addr_receive(BUSDriver *busp,
  *
  * @notapi
  */
-void bus_cmd_dummy_receive(BUSDriver *busp,
+void bus_cmd_dummy_receive(SNORDriver *devp,
                            uint32_t cmd,
                            uint32_t dummy,
                            size_t n,
                            uint8_t *p) {
+  BUSDriver *busp = devp->config->busp;
 #if SNOR_BUS_DRIVER == SNOR_BUS_DRIVER_WSPI
   wspi_command_t mode;
 
@@ -638,11 +679,11 @@ void bus_cmd_dummy_receive(BUSDriver *busp,
 
   spiSelect(busp);
   buf[0] = cmd;
-  spiSend(busp, 1, buf);
+  __spiSend(devp, 1, buf);
   if (dummy != 0U) {
     spiIgnore(busp, dummy / 8U);
   }
-  spiReceive(busp, n, p);
+  __spiReceive(devp, n, p);
   spiUnselect(busp);
 #endif
 }
@@ -660,12 +701,13 @@ void bus_cmd_dummy_receive(BUSDriver *busp,
  *
  * @notapi
  */
-void bus_cmd_addr_dummy_receive(BUSDriver *busp,
+void bus_cmd_addr_dummy_receive(SNORDriver *devp,
                                 uint32_t cmd,
                                 flash_offset_t offset,
                                 uint32_t dummy,
                                 size_t n,
                                 uint8_t *p) {
+  BUSDriver *busp = devp->config->busp;
 #if SNOR_BUS_DRIVER == SNOR_BUS_DRIVER_WSPI
   wspi_command_t mode;
 
@@ -679,11 +721,11 @@ void bus_cmd_addr_dummy_receive(BUSDriver *busp,
   osalDbgAssert((dummy & 7) == 0U, "multiple of 8 dummy cycles");
 
   spiSelect(busp);
-  snor_spi_cmd_addr(busp, cmd, offset);
+  snor_spi_cmd_addr(devp, cmd, offset);
   if (dummy != 0U) {
     spiIgnore(busp, dummy / 8U);
   }
-  spiReceive(busp, n, p);
+  __spiReceive(devp, n, p);
   spiUnselect(busp);
 #endif
 }

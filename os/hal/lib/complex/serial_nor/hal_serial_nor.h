@@ -39,11 +39,6 @@
 #define SNOR_BUS_DRIVER_WSPI                1U
 /** @} */
 
-/**
- * @brief   Size of the buffer for internal operations.
- */
-#define SNOR_BUFFER_SIZE                    32
-
 /*===========================================================================*/
 /* Driver pre-compile time settings.                                         */
 /*===========================================================================*/
@@ -87,6 +82,26 @@
 #if !defined(SNOR_SPI_4BYTES_ADDRESS) || defined(__DOXYGEN__)
 #define SNOR_SPI_4BYTES_ADDRESS             FALSE
 #endif
+
+/**
+ * @brief   Cache workaround switch
+ * @details If set to @p TRUE the device will use nocache buffer
+ *          as intermediate buffer for all SPI tx and rx data
+ *          This should help avoid caching issues.
+ */
+#if !defined(SNOR_SPI_WORKAROUND_CACHE) || defined(__DOXYGEN__)
+#define SNOR_SPI_WORKAROUND_CACHE           FALSE
+#endif
+
+/**
+ * @brief   Size of the buffer for internal operations.
+ * #details Size if intermediate nocache buffer for tx and rx
+ *          operations to avoid caching issues;
+ */
+#if !defined(SNOR_BUFFER_SIZE) || defined(__DOXYGEN__)
+#define SNOR_BUFFER_SIZE                    32
+#endif
+
 /** @} */
 
 /*===========================================================================*/
@@ -101,6 +116,14 @@
 #define BUSDriver WSPIDriver
 #else
 #error "invalid SNOR_BUS_DRIVER setting"
+#endif
+
+#if (SNOR_BUFFER_SIZE & (SNOR_BUFFER_SIZE - 1)) != 0
+#error "SNOR_BUFFER_SIZE is not a power of two"
+#endif
+
+#if SNOR_BUFFER_SIZE < 32
+#error "Invalid SNOR_BUFFER_SIZE value"
 #endif
 
 /*===========================================================================*/
@@ -201,29 +224,29 @@ extern "C" {
   void bus_acquire(BUSDriver *busp, const BUSConfig *config);
   void bus_release(BUSDriver *busp);
 #endif
-  void bus_cmd(BUSDriver *busp, uint32_t cmd);
-  void bus_cmd_send(BUSDriver *busp, uint32_t cmd, size_t n, const uint8_t *p);
-  void bus_cmd_receive(BUSDriver *busp,
+  void bus_cmd(SNORDriver *devp, uint32_t cmd);
+  void bus_cmd_send(SNORDriver *devp, uint32_t cmd, size_t n, const uint8_t *p);
+  void bus_cmd_receive(SNORDriver *devp,
                        uint32_t cmd,
                        size_t n,
                        uint8_t *p);
-  void bus_cmd_addr(BUSDriver *busp, uint32_t cmd, flash_offset_t offset);
-  void bus_cmd_addr_send(BUSDriver *busp,
+  void bus_cmd_addr(SNORDriver *devp, uint32_t cmd, flash_offset_t offset);
+  void bus_cmd_addr_send(SNORDriver *devp,
                          uint32_t cmd,
                          flash_offset_t offset,
                          size_t n,
                          const uint8_t *p);
-  void bus_cmd_addr_receive(BUSDriver *busp,
+  void bus_cmd_addr_receive(SNORDriver *devp,
                             uint32_t cmd,
                             flash_offset_t offset,
                             size_t n,
                             uint8_t *p);
-  void bus_cmd_dummy_receive(BUSDriver *busp,
+  void bus_cmd_dummy_receive(SNORDriver *devp,
                              uint32_t cmd,
                              uint32_t dummy,
                              size_t n,
                              uint8_t *p);
-  void bus_cmd_addr_dummy_receive(BUSDriver *busp,
+  void bus_cmd_addr_dummy_receive(SNORDriver *devp,
                                   uint32_t cmd,
                                   flash_offset_t offset,
                                   uint32_t dummy,
